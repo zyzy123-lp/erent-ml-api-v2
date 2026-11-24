@@ -33,3 +33,20 @@ Tingnan ang `data/real_training.sample.csv` para sa format. Hindi ito ni-loload 
 
 ## Test
 `GET /health` ay nagpapakita ng `synthetic_rows` at `real_rows`, kaya makikita mo kung gumagana ang real data.
+---
+
+# v2.1: Admin Analytics forecasting (`POST /forecast`)
+
+Ginagamit ng **Predictive Analytics** ng admin (booking forecast, revenue forecast, equipment demand).
+
+**Request** (isang tawag para sa lahat ng series):
+```json
+{"horizon": 3,
+ "series": [{"key": "bookings", "months": ["2026-09","2026-10","2026-11"], "values": [6,9,8], "integer": true}]}
+```
+**Response:** `results[key] = {model, method, confidence, history_months, backtest_mae, backtest_mape_pct, points:[{month,value,low,high}]}`
+
+## Paano gumagana (para sa defense)
+Bawat series ay sinusubukan sa 4 na model: `mean3` (baseline), `wma_trend`, `ridge_ar` (Ridge regression sa lag1-3 + trend, kailangan ng 8+ buwan), at `gbr_season` (Gradient Boosting + buwan ng taon, kailangan ng 24+ buwan). Pinipili ang pinakamahusay sa **rolling-origin backtest** (hinuhulaan ang bawat isa sa huling ≤8 buwan gamit lang ang mga naunang buwan). Kapag halos magkapantay, ang mas simple ang panalo. Ang `low`/`high` ay galing sa error ng backtest, at ang `confidence` ay nakabatay sa dami ng history at sa laki ng error. Kapag kulang ang data, baseline lang ang lalabas at mababa ang confidence. Hindi nito pinipilit ang ML kung hindi ito mas mahusay.
+
+Ang `/recommend` (package ranking) ay hindi nagbago.
