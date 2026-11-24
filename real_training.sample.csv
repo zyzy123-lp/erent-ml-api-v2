@@ -1,0 +1,4 @@
+event_type,guests,budget,cand_event_type,price,chair_capacity,times_booked,booked
+Birthday,100,20000,Birthday,20000,101,1,1
+Birthday,100,20000,Birthday,15000,91,3,0
+Wedding,0,25000,Birthday,25000,126,0,0
