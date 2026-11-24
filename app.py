@@ -1,5 +1,5 @@
 """
-e-Rent Smart Package Recommender (v2, candidate ranking)
+e-Rent ML API (v2.1): package ranking (/recommend) + admin analytics forecasting (/forecast)
 
 Ang PHP ay nagpapadala ng LISTAHAN NG CANDIDATE PACKAGES (kasama ang presyo, event_type,
 kapasidad ng upuan, items). Ang model ay nagbibigay ng score sa bawat candidate. Hindi na
@@ -18,11 +18,13 @@ import os
 from typing import List
 
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sklearn.ensemble import RandomForestClassifier
 
-app = FastAPI(title="e-Rent Smart Package Recommender", version="2.0")
+from forecasting import forecast_series
+
+app = FastAPI(title="e-Rent ML API", version="2.1")
 
 EVENTS = ["Wedding", "Birthday", "Debut", "Corporate", "Other"]
 REAL_CSV = os.path.join(os.path.dirname(__file__), "data", "real_training.csv")
@@ -138,7 +140,8 @@ class RecommendRequest(BaseModel):
 @app.get("/")
 @app.get("/health")
 def home():
-    return {"status": "online", "service": "e-Rent ML API", "version": "2.0", "model": MODEL_INFO}
+    return {"status": "online", "service": "e-Rent ML API", "version": "2.1", "model": MODEL_INFO,
+            "endpoints": ["/recommend", "/forecast"]}
 
 
 @app.post("/recommend")
@@ -153,3 +156,42 @@ def recommend(req: RecommendRequest):
     order = np.argsort(-probs)
     recs = [{"package_id": req.candidates[i].id, "score": round(float(probs[i]), 3)} for i in order]
     return {"recommendations": recs[:3]}
+
+
+# ------------------------------------------------------- admin analytics: /forecast
+import re
+
+MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+MAX_SERIES = 400
+MAX_MONTHS = 120
+
+
+class SeriesIn(BaseModel):
+    key: str                      # hal. "bookings", "revenue", "eq:12"
+    months: List[str]             # "YYYY-MM", magkakasunod, paakyat
+    values: List[float]
+    integer: bool = False         # True para sa bilang (bookings, units)
+
+
+class ForecastRequest(BaseModel):
+    horizon: int = 3
+    series: List[SeriesIn] = Field(default_factory=list)
+
+
+@app.post("/forecast")
+def forecast(req: ForecastRequest):
+    """Para sa bawat series: pumipili ng pinakamahusay na model sa backtest at nagbabalik ng
+    forecast, low/high range, confidence at backtest error."""
+    if not 1 <= req.horizon <= 12:
+        raise HTTPException(status_code=422, detail="horizon must be 1-12")
+    if len(req.series) > MAX_SERIES:
+        raise HTTPException(status_code=422, detail=f"too many series (max {MAX_SERIES})")
+    results = {}
+    for s in req.series:
+        if len(s.months) != len(s.values):
+            raise HTTPException(status_code=422, detail=f"{s.key}: months and values differ in length")
+        if len(s.months) > MAX_MONTHS or not all(MONTH_RE.match(m) for m in s.months):
+            raise HTTPException(status_code=422, detail=f"{s.key}: invalid months")
+        vals = [max(0.0, float(v)) for v in s.values]
+        results[s.key] = forecast_series(s.months, vals, req.horizon, integer=s.integer)
+    return {"engine": "ml_api", "version": "2.1", "horizon": req.horizon, "results": results}
